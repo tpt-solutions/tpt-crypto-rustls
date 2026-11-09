@@ -6,19 +6,23 @@
 //!
 //! The matrix covers every TLS 1.3 and TLS 1.2 suite the provider offers,
 //! each key-exchange group, and the four server key types (ECDSA P-256,
-//! ECDSA P-384, RSA-2048, Ed25519).
+//! ECDSA P-384, RSA-2048, Ed25519). For RSA leaves the test also checks which
+//! RSA signature scheme the server actually used.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::WebPkiServerVerifier;
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::{
-    CipherSuite, ClientConfig, ClientConnection, NamedGroup, RootCertStore, ServerConfig,
-    ServerConnection, StreamOwned, SupportedCipherSuite, SupportedProtocolVersion,
+    CipherSuite, ClientConfig, ClientConnection, DigitallySignedStruct, Error, NamedGroup,
+    RootCertStore, ServerConfig, ServerConnection, SignatureScheme, StreamOwned,
+    SupportedCipherSuite, SupportedProtocolVersion,
 };
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
@@ -65,6 +69,55 @@ impl Leaf {
     }
 }
 
+/// Signature schemes the client observed being verified, in order.
+type SigLog = Arc<Mutex<Vec<SignatureScheme>>>;
+
+/// Delegates all checks to the webpki verifier, and records the scheme of
+/// every handshake signature it is asked to verify.
+#[derive(Debug)]
+struct RecordingVerifier {
+    inner: Arc<WebPkiServerVerifier>,
+    seen: SigLog,
+}
+
+impl ServerCertVerifier for RecordingVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, Error> {
+        self.inner
+            .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        self.seen.lock().unwrap().push(dss.scheme);
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        self.seen.lock().unwrap().push(dss.scheme);
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.inner.supported_verify_schemes()
+    }
+}
+
 /// Server provider: rustls-rustcrypto, restricted to one suite.
 fn server_config(
     suite: SupportedCipherSuite,
@@ -83,31 +136,46 @@ fn server_config(
     Arc::new(config)
 }
 
-/// Client provider under test, restricted to one suite and one group.
+/// Client provider under test, restricted to one suite and one group. Server
+/// signatures are verified by webpki using this provider's algorithms, and
+/// the schemes used are recorded in the returned log.
 fn client_config(
     suite: SupportedCipherSuite,
     group: &'static dyn rustls::crypto::SupportedKxGroup,
     versions: &[&'static SupportedProtocolVersion],
-) -> Arc<ClientConfig> {
+) -> (Arc<ClientConfig>, SigLog) {
     let mut provider = tpt_crypto_rustls::provider();
     provider.cipher_suites = vec![suite];
     provider.kx_groups = vec![group];
-    let config = ClientConfig::builder_with_provider(Arc::new(provider))
+    let provider = Arc::new(provider);
+    let inner = WebPkiServerVerifier::builder_with_provider(Arc::new(roots()), provider.clone())
+        .build()
+        .expect("webpki verifier");
+    let seen: SigLog = Arc::default();
+    let verifier = Arc::new(RecordingVerifier {
+        inner,
+        seen: seen.clone(),
+    });
+    let config = ClientConfig::builder_with_provider(provider)
         .with_protocol_versions(versions)
         .expect("client versions")
-        .with_root_certificates(roots())
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
         .with_no_client_auth();
-    Arc::new(config)
+    (Arc::new(config), seen)
 }
 
 /// Runs one handshake and a short echo, then checks the negotiated suite and
-/// group. Returns an error string on any mismatch.
+/// group, and if given, the single signature scheme the client verified.
+/// Returns an error string on any mismatch.
 fn handshake(
     server: Arc<ServerConfig>,
-    client: Arc<ClientConfig>,
+    client: (Arc<ClientConfig>, SigLog),
     expect_suite: CipherSuite,
     expect_group: Option<NamedGroup>,
+    expect_sig: Option<SignatureScheme>,
 ) -> Result<(), String> {
+    let (client, seen) = client;
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
 
@@ -158,10 +226,26 @@ fn handshake(
             "negotiated group {group:?}, expected {expect_group:?}"
         ));
     }
+    if let Some(expect) = expect_sig {
+        let schemes = seen.lock().unwrap().clone();
+        if schemes != [expect] {
+            return Err(format!(
+                "verified signatures {schemes:?}, expected [{expect:?}]"
+            ));
+        }
+    }
 
     server_thread
         .join()
         .map_err(|_| "server thread panicked".to_string())?
+}
+
+/// The signature scheme the server must use for a given leaf, where the test
+/// pins it. Only RSA is pinned: the client offers all six RSA schemes, and the
+/// rustls-rustcrypto RSA key picks RSA-PSS SHA-512 from them in both versions.
+/// The ECDSA and Ed25519 schemes follow from the key type and are not checked.
+fn rsa_scheme(leaf: Leaf) -> Option<SignatureScheme> {
+    matches!(leaf, Leaf::Rsa).then_some(SignatureScheme::RSA_PSS_SHA512)
 }
 
 const TLS13: &[&SupportedProtocolVersion] = &[&rustls::version::TLS13];
@@ -204,9 +288,11 @@ fn tls13_all_suites_groups_and_key_types() {
                 _ => rustls_rustcrypto::TLS13_CHACHA20_POLY1305_SHA256,
             };
             for (group, group_name) in groups {
+                let expect_sig = rsa_scheme(leaf);
                 let server = server_config(server_suite, TLS13, leaf);
                 let client = client_config(suite, group, TLS13);
-                if let Err(e) = handshake(server, client, suite_name, Some(group_name)) {
+                if let Err(e) = handshake(server, client, suite_name, Some(group_name), expect_sig)
+                {
                     failures.push(format!("{leaf:?} / {suite_name:?} / {group_name:?}: {e}"));
                 }
             }
@@ -276,9 +362,11 @@ fn tls12_all_suites_and_groups() {
     for (ours, theirs, suite_name, leaves) in cases {
         for &leaf in leaves {
             for (group, group_name) in groups {
+                let expect_sig = rsa_scheme(leaf);
                 let server = server_config(theirs, TLS12, leaf);
                 let client = client_config(ours, group, TLS12);
-                if let Err(e) = handshake(server, client, suite_name, Some(group_name)) {
+                if let Err(e) = handshake(server, client, suite_name, Some(group_name), expect_sig)
+                {
                     failures.push(format!("{leaf:?} / {suite_name:?} / {group_name:?}: {e}"));
                 }
             }
@@ -314,9 +402,10 @@ fn untrusted_server_certificate_is_rejected() {
     );
     let err = handshake(
         server,
-        client,
+        (client, SigLog::default()),
         CipherSuite::TLS13_AES_128_GCM_SHA256,
         Some(NamedGroup::X25519),
+        None,
     )
     .expect_err("handshake must fail");
     assert!(

@@ -15,10 +15,10 @@ rustls = { version = "0.23.46", default-features = false, features = ["std", "tl
 getrandom = "0.3"
 rsa = "0.9.10"
 sha2 = { version = "0.10", features = ["oid"] }
-tpt-crypto-aead = { path = "../tpt-crypto/crates/tpt-crypto-aead" }
-tpt-crypto-curve = { path = "../tpt-crypto/crates/tpt-crypto-curve" }
-tpt-crypto-hash = { path = "../tpt-crypto/crates/tpt-crypto-hash" }
-tpt-crypto-sig = { path = "../tpt-crypto/crates/tpt-crypto-sig" }
+tpt-crypto-aead = { git = "https://github.com/tpt-solutions/tpt-crypto", rev = "8b73d9b13cb1432547a03dd58d8cf8d6231e3784" }
+tpt-crypto-curve = { git = "https://github.com/tpt-solutions/tpt-crypto", rev = "8b73d9b13cb1432547a03dd58d8cf8d6231e3784" }
+tpt-crypto-hash = { git = "https://github.com/tpt-solutions/tpt-crypto", rev = "8b73d9b13cb1432547a03dd58d8cf8d6231e3784" }
+tpt-crypto-sig = { git = "https://github.com/tpt-solutions/tpt-crypto", rev = "8b73d9b13cb1432547a03dd58d8cf8d6231e3784" }
 
 [dev-dependencies]
 # Server side of the handshake tests only. Never linked into the library.

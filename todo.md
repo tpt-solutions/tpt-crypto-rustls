@@ -14,9 +14,9 @@ Not audited.
 
 ## Repo and publishing
 
-- [ ] Create the GitHub remote and push (`gh` is not installed)
-- [ ] Switch the `tpt-crypto` path dependency to a git or registry dependency
-- [ ] Commit the initial tree (nothing is committed yet)
+- [x] Create the GitHub remote and push (done: `origin` is `github.com/tpt-solutions/tpt-crypto-rustls`, `master` at `c9d3d62`)
+- [x] Switch the `tpt-crypto` path dependency to a git dependency (pinned to `tpt-crypto` `8b73d9b`, which is on its `origin/master`)
+- [x] Commit the initial tree (done: `c9d3d62 Initial rustls CryptoProvider on tpt-crypto`)
 
 ## Dependencies
 
@@ -27,7 +27,7 @@ Not audited.
 ## Correctness
 
 - [ ] Raise upstream that `tpt-crypto`'s `verify_prehash` rejects high-S ECDSA signatures. The adapter currently normalises `s` to low-S; remove that workaround once upstream accepts them
-- [ ] Assert the negotiated RSA signature scheme in the handshake tests (currently covered by the direct verifier unit tests)
+- [x] Assert the negotiated RSA signature scheme in the handshake tests (both TLS versions pin `RSA_PSS_SHA512` for RSA leaves, via a recording verifier wrapper)
 
 ## Assurance
 
