@@ -14,12 +14,11 @@ exclude-dev = false
 [advisories]
 # Do not ship code with known vulnerabilities.
 ignore = [
-    # SHIPPED. `rsa` is a normal dependency, used only to verify RSA signatures
-    # (`src/verify.rs`). Verification uses public-key operations only, so the
-    # Marvin timing attack on private-key operations does not apply. The fix is
-    # rsa 0.10, which needs digest 0.11 support in tpt-crypto. rsa 0.10.0 was tried
-    # on 2026-11-18 and does not build against tpt-crypto's digests yet.
-    { id = "RUSTSEC-2023-0071", reason = "rsa, shipped: verification only, no private-key operations; upgrade to rsa 0.10 needs tpt-crypto digest 0.11; review by 2027-02-09" },
+    # DEV ONLY. The shipped build uses rsa 0.10, which is not affected. rsa 0.9 is
+    # still in the graph only through rustls-rustcrypto, the dev-dependency below.
+    # Its Marvin timing attack concerns private-key operations, which the dev peer
+    # never runs on the library's path.
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.9 via rustls-rustcrypto (dev-dependency only); shipped code uses rsa 0.10; review by 2027-02-09" },
     # DEV ONLY. These come from rustls-rustcrypto 0.0.2-alpha, a dev-dependency
     # used by the handshake tests as a peer provider. They are not in the shipped
     # library.

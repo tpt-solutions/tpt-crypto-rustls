@@ -28,10 +28,13 @@ QUIC, and any server-side signing.
 ## Dependencies
 
 - tpt-crypto crates (path dependency, `../tpt-crypto`): AEAD, hashes, HMAC, curves, signatures.
-- `rsa` (`MIT OR Apache-2.0`): RSA verification only. Its RUSTSEC-2023-0071
-  (Marvin) advisory concerns private-key operations, which this crate never
-  performs.
-- `sha2` (`MIT OR Apache-2.0`): types that supply the RSA DigestInfo OIDs.
+- `rsa` 0.10 (`MIT OR Apache-2.0`): RSA verification only, with the `pkcs1v15`
+  and `hazmat` features. The RUSTSEC-2023-0071 (Marvin) advisory concerns
+  private-key operations, which this crate never performs. rsa 0.10 replaced 0.9
+  on 2026-11-18, which cleared that advisory from the shipped build.
+- `sha2` 0.11 (`MIT OR Apache-2.0`): types that supply the RSA DigestInfo OIDs.
+  Its digest traits match rsa 0.10. The digests themselves still come from
+  tpt-crypto, so tpt-crypto did not need a change.
 - `getrandom`, `rustls` (`Apache-2.0 OR ISC OR MIT`).
 - Dev-only: `rustls-rustcrypto`, as the server in handshake tests.
 
