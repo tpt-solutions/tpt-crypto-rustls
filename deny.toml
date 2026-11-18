@@ -1,0 +1,50 @@
+# cargo-deny configuration. Advisories and licences are enforced by `cargo deny check`.
+# Each ignored advisory carries a reason and a review date, because cargo-deny 0.20
+# has no expiry key. Review every entry by 2027-02-09.
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+exclude-dev = false
+
+[advisories]
+# Do not ship code with known vulnerabilities.
+ignore = [
+    # SHIPPED. `rsa` is a normal dependency, used only to verify RSA signatures
+    # (`src/verify.rs`). Verification uses public-key operations only, so the
+    # Marvin timing attack on private-key operations does not apply. The fix is
+    # rsa 0.10, which needs digest 0.11 support in tpt-crypto. rsa 0.10.0 was tried
+    # on 2026-11-18 and does not build against tpt-crypto's digests yet.
+    { id = "RUSTSEC-2023-0071", reason = "rsa, shipped: verification only, no private-key operations; upgrade to rsa 0.10 needs tpt-crypto digest 0.11; review by 2027-02-09" },
+    # DEV ONLY. These come from rustls-rustcrypto 0.0.2-alpha, a dev-dependency
+    # used by the handshake tests as a peer provider. They are not in the shipped
+    # library.
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint via rustls-rustcrypto (dev-dependency only); review by 2027-02-09" },
+    { id = "RUSTSEC-2024-0436", reason = "paste via rustls-rustcrypto (dev-dependency only); unmaintained, build-time macro; review by 2027-02-09" },
+    { id = "RUSTSEC-2026-0049", reason = "old rustls-webpki 0.102 via rustls-rustcrypto (dev-dependency only); review by 2027-02-09" },
+    { id = "RUSTSEC-2026-0098", reason = "old rustls-webpki 0.102 via rustls-rustcrypto (dev-dependency only); review by 2027-02-09" },
+    { id = "RUSTSEC-2026-0099", reason = "old rustls-webpki 0.102 via rustls-rustcrypto (dev-dependency only); review by 2027-02-09" },
+    { id = "RUSTSEC-2026-0104", reason = "old rustls-webpki 0.102 via rustls-rustcrypto (dev-dependency only); review by 2027-02-09" },
+    { id = "RUSTSEC-2026-0382", reason = "old rustls-webpki 0.102 via rustls-rustcrypto (dev-dependency only); review by 2027-02-09" },
+]
+
+[licenses]
+# The tpt-k policy allowlist (LICENSE-POLICY.md). Apache-2.0 on its own is not
+# listed: it is allowed only in dev-dependencies, through the exceptions below.
+allow = [
+    "MIT",
+    "Unicode-3.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unlicense",
+    "CC0-1.0",
+    "MIT-0",
+    "BSL-1.0",
+]
+confidence-threshold = 0.93
